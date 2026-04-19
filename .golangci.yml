@@ -1,0 +1,45 @@
+version: "2"
+
+run:
+  timeout: 2m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - misspell
+    - nilerr
+    - prealloc
+    - revive
+    - unconvert
+    - unparam
+  settings:
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+        - name: var-naming
+          arguments:
+            - - ID
+            - - URL
+              - HTTP
+              - JSON
+              - OTLP
+              - API
+              - CLI
+              - TUI
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - commentFormatting
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/johnletey/cadence

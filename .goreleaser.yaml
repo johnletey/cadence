@@ -1,0 +1,90 @@
+version: 2
+
+project_name: cadence
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: cadence
+    main: .
+    binary: cadence
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+    flags:
+      - -trimpath
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm64" }}arm64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^Merge "
+  groups:
+    - title: Features
+      regexp: '^feat(\([^)]+\))?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\([^)]+\))?:'
+      order: 1
+    - title: Other
+      order: 99
+
+release:
+  draft: false
+  prerelease: auto
+  header: |
+    ## cadence {{ .Version }}
+  footer: |
+    ---
+    **Full changelog**: https://github.com/johnletey/cadence/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+# Uncomment to publish a Homebrew tap when you have one set up.
+# brews:
+#   - repository:
+#       owner: johnletey
+#       name: homebrew-tap
+#     directory: Formula
+#     homepage: https://github.com/johnletey/cadence
+#     description: OTLP traces in your terminal. Browse with the TUI, pipe with the CLI.
+#     license: Apache-2.0
+#     test: |
+#       system "#{bin}/cadence --version"
+#     install: |
+#       bin.install "cadence"
