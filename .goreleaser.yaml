@@ -75,16 +75,17 @@ release:
     ---
     **Full changelog**: https://github.com/johnletey/cadence/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-# Uncomment to publish a Homebrew tap when you have one set up.
-# brews:
-#   - repository:
-#       owner: johnletey
-#       name: homebrew-tap
-#     directory: Formula
-#     homepage: https://github.com/johnletey/cadence
-#     description: OTLP traces in your terminal. Browse with the TUI, pipe with the CLI.
-#     license: Apache-2.0
-#     test: |
-#       system "#{bin}/cadence --version"
-#     install: |
-#       bin.install "cadence"
+homebrew_casks:
+  - name: cadence
+    homepage: https://github.com/johnletey/cadence
+    description: OTLP traces in your terminal. Browse with the TUI, pipe with the CLI.
+    hooks:
+      post:
+        install: |
+          if OS.mac? && Hardware::CPU.arm?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cadence"]
+          end
+    repository:
+      owner: johnletey
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
