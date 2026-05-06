@@ -197,6 +197,19 @@ main.go           Subcommand dispatch
 
 Rendering lives in one place so the TUI and `preview` can't drift. The TUI adds selection highlighting on top; the CLI just prints the raw rendered output.
 
+## Development
+
+Tool versions are pinned in `mise.toml` and managed with [mise](https://mise.jdx.dev). Install mise, then from the repo root:
+
+```sh
+mise install         # installs the pinned go, golangci-lint, and goreleaser
+go build ./...
+golangci-lint run
+goreleaser check
+```
+
+CI uses the same `mise.toml` via [`jdx/mise-action`](https://github.com/jdx/mise-action), so local and CI toolchains stay in lockstep. Bumping a tool is a one-line change in `mise.toml`.
+
 ## Why "cadence"
 
 Traces are about timing: when things happen and how long they take. "Cadence" is the word for that rhythm in prose and music.
