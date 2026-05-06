@@ -13,12 +13,12 @@ type TUICmd struct {
 }
 
 func (c *TUICmd) Run(g *Globals) error {
-	b, name, refreshInterval, err := resolveSource(g, c.Refresh)
+	entries, current, err := resolveSources(g, c.Refresh)
 	if err != nil {
 		return err
 	}
 
-	p := tea.NewProgram(tui.New(b, name, refreshInterval), tea.WithAltScreen())
+	p := tea.NewProgram(tui.New(entries, current), tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }

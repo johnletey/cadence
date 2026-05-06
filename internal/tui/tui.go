@@ -30,9 +30,24 @@ const (
 	focusDetail
 )
 
+// SourceEntry is one switchable source the TUI knows about. URL is optional;
+// when set it's shown next to the name in the source picker so similarly
+// named sources can be told apart.
+type SourceEntry struct {
+	Name            string
+	URL             string
+	Source          source.Source
+	RefreshInterval time.Duration
+}
+
 type Model struct {
 	src     source.Source
 	srcName string
+
+	// Available sources for the picker (always at least one entry).
+	sources      []SourceEntry
+	pickerOpen   bool
+	pickerCursor int
 
 	// Query overlay
 	input     textinput.Model
@@ -68,7 +83,20 @@ type Model struct {
 	ctrlWPending bool // `ctrl-w` window-navigation prefix
 }
 
-func New(b source.Source, srcName string, refreshInterval time.Duration) Model {
+func New(sources []SourceEntry, current string) Model {
+	if len(sources) == 0 {
+		// Defensive: callers should always pass at least one source.
+		panic("tui.New: no sources provided")
+	}
+	idx := 0
+	for i, e := range sources {
+		if e.Name == current {
+			idx = i
+			break
+		}
+	}
+	active := sources[idx]
+	refreshInterval := active.RefreshInterval
 	if refreshInterval < minRefreshEvery {
 		refreshInterval = minRefreshEvery
 	}
@@ -82,8 +110,10 @@ func New(b source.Source, srcName string, refreshInterval time.Duration) Model {
 	sp.Style = lipgloss.NewStyle().Foreground(render.ColorAccent2)
 
 	return Model{
-		src:             b,
-		srcName:         srcName,
+		src:             active.Source,
+		srcName:         active.Name,
+		sources:         sources,
+		pickerCursor:    idx,
 		input:           ti,
 		spin:            sp,
 		focus:           focusList,
@@ -249,6 +279,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.pickerOpen {
+			return m.updatePicker(msg)
+		}
 		if m.searching {
 			return m.updateSearchInput(msg)
 		}
@@ -381,6 +414,82 @@ func (m Model) mergeResults(incoming []source.TraceSummary) Model {
 	return m
 }
 
+func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "s":
+		// `esc` is the documented dismiss key; `s` toggles.
+		m.pickerOpen = false
+		return m, nil
+	case "ctrl+c", "q":
+		// Honour the global quit habit even with the modal open.
+		return m, tea.Quit
+	case "up", "k":
+		if m.pickerCursor > 0 {
+			m.pickerCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.pickerCursor < len(m.sources)-1 {
+			m.pickerCursor++
+		}
+		return m, nil
+	case "home", "g":
+		m.pickerCursor = 0
+		return m, nil
+	case "end", "G":
+		m.pickerCursor = len(m.sources) - 1
+		return m, nil
+	case "enter":
+		m.pickerOpen = false
+		target := m.sources[m.pickerCursor]
+		if target.Name == m.srcName {
+			return m, nil // already active, nothing to do
+		}
+		return m.switchTo(target)
+	}
+	return m, nil
+}
+
+// switchTo swaps the active source and clears all per-source state. The new
+// source starts with the default query and a fresh search; the trace cache
+// is dropped because trace IDs are not portable across backends.
+func (m Model) switchTo(target SourceEntry) (Model, tea.Cmd) {
+	refresh := target.RefreshInterval
+	if refresh < minRefreshEvery {
+		refresh = minRefreshEvery
+	}
+
+	m.src = target.Source
+	m.srcName = target.Name
+	m.refreshInterval = refresh
+
+	// Reset list, detail, and cache.
+	m.results = nil
+	m.listCursor = 0
+	m.listOffset = 0
+	m.lastQuery = defaultQuery
+	m.loading = true
+	m.trace = nil
+	m.tree = nil
+	m.detailCursor = 0
+	m.detailOffset = 0
+	m.loadingTrace = false
+	m.loadingTraceID = ""
+	m.cache = map[string]*source.Trace{}
+	m.err = nil
+	m.focus = focusList
+
+	// Invalidate any in-flight settle/refresh callbacks tied to the old source.
+	m.settleGen++
+	m.refreshGen++
+
+	return m, tea.Batch(
+		m.doSearch(defaultQuery, false),
+		m.spin.Tick,
+		m.scheduleAutoRefresh(m.refreshGen),
+	)
+}
+
 func (m Model) updateSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -451,6 +560,21 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		m.gPending = false
 		m.autoRefresh = !m.autoRefresh
+		return m, nil
+	case "s":
+		m.gPending = false
+		// Nothing to switch to — don't open a useless one-row modal.
+		if len(m.sources) <= 1 {
+			return m, nil
+		}
+		m.pickerOpen = true
+		// Start the picker on the active source so enter is a no-op.
+		for i, e := range m.sources {
+			if e.Name == m.srcName {
+				m.pickerCursor = i
+				break
+			}
+		}
 		return m, nil
 	case "tab":
 		m.gPending = false
@@ -608,10 +732,60 @@ func (m Model) View() string {
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString(m.renderBody())
+	if m.pickerOpen {
+		sb.WriteString(m.renderPicker())
+	} else {
+		sb.WriteString(m.renderBody())
+	}
 	sb.WriteString("\n")
 	sb.WriteString(m.renderFooter())
 	return sb.String()
+}
+
+// renderPicker draws the source switcher centered in the body region. It
+// replaces the body rather than overlaying it because lipgloss doesn't
+// composite arbitrary text reliably; replacement is simpler and just as
+// usable since the modal is always the focused element while open.
+func (m Model) renderPicker() string {
+	h := m.paneBodyHeight()
+
+	title := pickerTitle.Render(" switch source ")
+	hint := render.Muted.Render("j/k move · enter select · esc cancel")
+
+	rows := make([]string, 0, len(m.sources))
+	for i, e := range m.sources {
+		active := e.Name == m.srcName
+		dot := "  "
+		if active {
+			dot = "● "
+		}
+
+		// On the cursor row the selection background must own the whole
+		// line; pre-styling the dot or URL would inject ANSI resets and
+		// punch holes in the background. So style only when not selected.
+		var row string
+		if i == m.pickerCursor {
+			row = e.Name
+			if e.URL != "" {
+				row += "  " + e.URL
+			}
+			row = pickerSelected.Render(dot + row)
+		} else {
+			d := dot
+			if active {
+				d = render.Hot.Render(dot)
+			}
+			row = d + e.Name
+			if e.URL != "" {
+				row += "  " + render.Muted.Render(e.URL)
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	body := strings.Join(rows, "\n")
+	box := pickerBox.Render(strings.Join([]string{title, "", body, "", hint}, "\n"))
+	return lipgloss.Place(m.width, h, lipgloss.Center, lipgloss.Center, box)
 }
 
 func (m Model) renderHeader() string {
@@ -639,9 +813,12 @@ func (m Model) renderHeader() string {
 
 func (m Model) renderFooter() string {
 	keys := []string{}
-	if m.searching {
+	switch {
+	case m.pickerOpen:
+		keys = append(keys, "j/k move", "enter select", "esc cancel")
+	case m.searching:
 		keys = append(keys, "enter run", "esc cancel")
-	} else {
+	default:
 		auto := "auto:on"
 		if !m.autoRefresh {
 			auto = "auto:off"
@@ -653,8 +830,11 @@ func (m Model) renderFooter() string {
 			"/ query",
 			"r refresh",
 			"p "+auto,
-			"q quit",
 		)
+		if len(m.sources) > 1 {
+			keys = append(keys, "s source")
+		}
+		keys = append(keys, "q quit")
 	}
 	return render.Muted.Render(strings.Join(keys, "  ·  "))
 }

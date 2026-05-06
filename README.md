@@ -100,8 +100,9 @@ enter                      load the selected trace into the right pane
 /                          edit the TraceQL query
 r                          manual refresh
 p                          pause/resume auto-refresh
+s                          switch source
 q, ctrl-c                  quit
-esc                        close query input, or move focus back to list
+esc                        close query input or source picker, or move focus back to list
 ```
 
 ### How the right pane fills in
@@ -115,6 +116,10 @@ The attribute pane always tracks the highlighted span, not the trace root. Hit `
 Tempo traces are immutable once ingested, so new entries prepend to the top of the list and nothing else moves. Your cursor stays on the trace it was on; its index shifts down, but the selection and detail pane don't reload. If the list was empty and the first trace arrives, the cursor lands on row 0.
 
 The header shows `· live 2s` while auto-refresh is running, so you can see if it's on and how often it fires.
+
+### Switching sources
+
+Press `s` to open a modal listing every source in your config. The active source is marked, j/k moves the cursor, enter switches, esc cancels. Switching resets the query to `{}`, drops the trace cache (trace IDs are not portable across backends), and starts a fresh search at the new source's refresh interval. The picker only shows up when there's more than one source configured — with `--url` or a single-source config, the `s` key and its footer hint are hidden.
 
 ## The CLI (headless mode)
 

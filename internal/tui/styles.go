@@ -22,4 +22,18 @@ var (
 	selectedDim = lipgloss.NewStyle().
 			Background(render.ColorSubtle).
 			Foreground(lipgloss.Color("#BDBDCC"))
+
+	pickerBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(render.ColorAccent).
+			Padding(0, 2)
+
+	pickerTitle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(render.ColorAccent)
+
+	pickerSelected = lipgloss.NewStyle().
+			Background(render.ColorHighlite).
+			Foreground(lipgloss.Color("#FFFFFF"))
 )

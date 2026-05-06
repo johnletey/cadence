@@ -11,6 +11,7 @@ import (
 	"github.com/johnletey/cadence/internal/config"
 	"github.com/johnletey/cadence/internal/source"
 	"github.com/johnletey/cadence/internal/source/tempo"
+	"github.com/johnletey/cadence/internal/tui"
 )
 
 const (
@@ -22,6 +23,55 @@ const (
 // construct. Keep this in sync with the switch in buildSource and the enum
 // on the --type CLI flag.
 var supportedBackendTypes = []string{"tempo"}
+
+// resolveSources builds every source declared in the config (or the single
+// ad-hoc --url source) and returns them along with the name of the one the
+// TUI should start on. The TUI uses this to power the source switcher.
+func resolveSources(g *Globals, cliRefresh time.Duration) ([]tui.SourceEntry, string, error) {
+	if g.URL != "" {
+		s, name, refresh, err := resolveSource(g, cliRefresh)
+		if err != nil {
+			return nil, "", err
+		}
+		return []tui.SourceEntry{{
+			Name:            name,
+			Source:          s,
+			RefreshInterval: refresh,
+		}}, name, nil
+	}
+
+	cfg, loaded, err := config.Load(g.Config)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(cfg.Sources) == 0 {
+		return nil, "", fmt.Errorf("no sources configured. Create %s or pass --url http://localhost:3200",
+			cmp.Or(loaded, "~/.config/cadence/config.yaml"))
+	}
+	current := cmp.Or(g.Source, cfg.DefaultSource)
+	if _, ok := cfg.Sources[current]; !ok {
+		have := slices.Sorted(maps.Keys(cfg.Sources))
+		return nil, "", fmt.Errorf("unknown source %q (have: %s)", current, strings.Join(have, ", "))
+	}
+
+	names := slices.Sorted(maps.Keys(cfg.Sources))
+	entries := make([]tui.SourceEntry, 0, len(names))
+	for _, name := range names {
+		sc := cfg.Sources[name]
+		typ := cmp.Or(strings.ToLower(sc.Type), defaultBackendType)
+		s, err := buildSource(typ, sc.URL, sc.Headers, sc.User, sc.Pass)
+		if err != nil {
+			return nil, "", fmt.Errorf("source %q: %w", name, err)
+		}
+		entries = append(entries, tui.SourceEntry{
+			Name:            name,
+			URL:             sc.URL,
+			Source:          s,
+			RefreshInterval: pickRefresh(cliRefresh, sc.Refresh.Duration(), cfg.Refresh.Duration()),
+		})
+	}
+	return entries, current, nil
+}
 
 // resolveSource builds a source.Source from either an ad-hoc --url or the
 // config file lookup. Returns the source, a display name, and the effective
