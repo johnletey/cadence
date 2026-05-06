@@ -29,7 +29,13 @@ Left pane is the live trace list. Right pane is the selected trace: header, serv
 
 ## Install
 
-Grab a binary from the [releases page](https://github.com/johnletey/cadence/releases) (macOS and Linux, amd64/arm64), or install from source:
+Homebrew (macOS):
+
+```sh
+brew install --cask johnletey/tap/cadence
+```
+
+Otherwise grab a binary from the [releases page](https://github.com/johnletey/cadence/releases) (macOS and Linux, amd64/arm64), or install from source:
 
 ```sh
 go install github.com/johnletey/cadence@latest
